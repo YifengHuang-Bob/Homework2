@@ -350,6 +350,79 @@ Yes. For \(n = 1000\), the difference in median execution time was approximately
 The loop implementation processes the walk one step at a time in an R `for` loop, repeatedly generating random numbers, checking the momentum condition, and updating the position. In contrast, the `vapply` implementation generates the keep/change decisions at once and performs much of the remaining work using vectorized operations such as `cumsum()`, indexing, and `colSums()`. These operations reduce the amount of step-by-step R-level loop overhead, which can lead to faster execution, especially when the number of steps is large.
 
 
+```{=typst}
+#v(2cm)
+```
+
+
+# Problem 2: Monte Carlo Simulation of Campus Bus Arrivals
+
+## Monte Carlo simulation
+
+```{r}
+set.seed(506)
+
+n_days <- 10000
+
+passengers_6_to_8 <- rowSums(
+  matrix(rpois(n_days * 3, lambda = 4), nrow = n_days)
+)
+
+passengers_9 <- rnorm(
+  n_days,
+  mean = 45,
+  sd = 4
+)
+
+passengers_10_to_3 <- rowSums(
+  matrix(rpois(n_days * 6, lambda = 15), nrow = n_days)
+)
+
+passengers_4 <- rnorm(
+  n_days,
+  mean = 55,
+  sd = 5
+)
+
+passengers_5_to_10 <- rowSums(
+  matrix(rpois(n_days * 6, lambda = 9), nrow = n_days)
+)
+
+daily_totals <- passengers_6_to_8 +
+  passengers_9 +
+  passengers_10_to_3 +
+  passengers_4 +
+  passengers_5_to_10
+
+mean_daily_passengers <- mean(daily_totals)
+
+mean_daily_passengers
+
+```
+
+## Estimated average daily passengers
+
+The Monte Carlo simulation of 10,000 days gives an estimated average of approximately 256.18 passengers per day.
+
+This result is very close to the theoretical expected total of
+
+$$
+3(4) + 45 + 6(15) + 55 + 6(9) = 256,
+$$
+
+which supports the accuracy of the simulation.
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
