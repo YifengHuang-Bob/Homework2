@@ -192,7 +192,7 @@ momentum_walk1(1000, 0.6)
 ```
 I used `set.seed(506)` before each call to `momentum_walk1()`. Setting the same seed resets R's random-number generator to the same starting state. Therefore, the same sequence of random numbers is generated each time, so the simulation produces the same result when the function and its inputs are unchanged.
 
-For \(n = 10\) and \(p = 0.6\), both runs produced the final position \((-2, 0)\). For \(n = 1000\) and \(p = 0.6\), both runs produced the final position \((-14, -30)\), demonstrating that the simulation is reproducible.
+For $n = 10$ and $p = 0.6$, both runs produced the final position $(-2, 0)$. For $n = 1000$ and $p = 0.6$, both runs produced the final position $(-14, -30)$, demonstrating that the simulation is reproducible.
 
 \
 
@@ -411,6 +411,374 @@ $$
 $$
 
 which supports the accuracy of the simulation.
+
+
+```{=typst}
+#v(2cm)
+```
+
+
+# Problem 3: Linear Regression
+
+## a. Data preparation and de-identification
+
+```{r}
+youtube <- read.csv(
+  "https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2021/2021-03-02/youtube.csv"
+)
+
+dim(youtube)
+names(youtube)
+```
+
+### De-identified dataset
+
+```{r}
+youtube_deidentified <- youtube[, !names(youtube) %in% c(
+  "brand",
+  "superbowl_ads_dot_com_url",
+  "youtube_url",
+  "id",
+  "etag",
+  "published_at",
+  "title",
+  "description",
+  "thumbnail",
+  "channel_title"
+)]
+
+dim(youtube_deidentified)
+
+```
+### Result
+
+The de-identified dataset contains 247 observations and 15 variables. I removed variables that could directly identify a specific commercial, including the brand, URLs, video ID, metadata, publication information, title, description, thumbnail, and channel title. The remaining variables do not directly identify an individual commercial and can be used for the subsequent analysis.
+
+\
+
+## b. Exploring potential outcomes
+
+### Distribution summaries
+
+```{r}
+engagement_vars <- c(
+  "view_count",
+  "like_count",
+  "dislike_count",
+  "favorite_count",
+  "comment_count"
+)
+
+summary(youtube_deidentified[engagement_vars])
+
+sapply(
+  youtube_deidentified[engagement_vars],
+  function(x) c(
+    missing = sum(is.na(x)),
+    zero = sum(x == 0, na.rm = TRUE),
+    unique = length(unique(x[!is.na(x)]))
+  )
+)
+
+```
+
+### Histograms of engagement variables
+
+```{r}
+par(mfrow = c(2, 3))
+
+hist(
+  youtube_deidentified$view_count,
+  main = "View count",
+  xlab = "view_count"
+)
+
+hist(
+  youtube_deidentified$like_count,
+  main = "Like count",
+  xlab = "like_count"
+)
+
+hist(
+  youtube_deidentified$dislike_count,
+  main = "Dislike count",
+  xlab = "dislike_count"
+)
+
+hist(
+  youtube_deidentified$favorite_count,
+  main = "Favorite count",
+  xlab = "favorite_count"
+)
+
+hist(
+  youtube_deidentified$comment_count,
+  main = "Comment count",
+  xlab = "comment_count"
+)
+
+par(mfrow = c(1, 1))
+
+```
+
+### Comparison of raw and log-transformed distributions
+
+```{r}
+par(mfrow = c(2, 4))
+
+hist(
+  youtube_deidentified$view_count,
+  main = "View count",
+  xlab = "view_count"
+)
+
+hist(
+  youtube_deidentified$like_count,
+  main = "Like count",
+  xlab = "like_count"
+)
+
+hist(
+  youtube_deidentified$dislike_count,
+  main = "Dislike count",
+  xlab = "dislike_count"
+)
+
+hist(
+  youtube_deidentified$comment_count,
+  main = "Comment count",
+  xlab = "comment_count"
+)
+
+hist(
+  log1p(youtube_deidentified$view_count),
+  main = "Log view count",
+  xlab = "log1p(view_count)"
+)
+
+hist(
+  log1p(youtube_deidentified$like_count),
+  main = "Log like count",
+  xlab = "log1p(like_count)"
+)
+
+hist(
+  log1p(youtube_deidentified$dislike_count),
+  main = "Log dislike count",
+  xlab = "log1p(dislike_count)"
+)
+
+hist(
+  log1p(youtube_deidentified$comment_count),
+  main = "Log comment count",
+  xlab = "log1p(comment_count)"
+)
+
+par(mfrow = c(1, 1))
+
+```
+
+### Transformed engagement variables
+
+```{r}
+youtube_deidentified$log_view_count <- log1p(
+  youtube_deidentified$view_count
+)
+
+youtube_deidentified$log_like_count <- log1p(
+  youtube_deidentified$like_count
+)
+
+youtube_deidentified$log_dislike_count <- log1p(
+  youtube_deidentified$dislike_count
+)
+
+youtube_deidentified$log_comment_count <- log1p(
+  youtube_deidentified$comment_count
+)
+
+```
+
+### Outcome assessment
+
+- **View count — Category 2:** The raw distribution is extremely right-skewed with several very large observations. The `log1p()` transformation substantially reduces the skewness, so `log_view_count` will be used as the outcome in subsequent analyses.
+
+- **Like count — Category 2:** The raw distribution is strongly right-skewed and includes zero values. Applying `log1p()` reduces the skewness while allowing observations with zero likes to be retained. Therefore, `log_like_count` will be used in subsequent analyses.
+
+- **Dislike count — Category 2:** The raw distribution is highly right-skewed and contains many zero values. The `log1p()` transformation improves the distribution and accommodates the zeros, so `log_dislike_count` will be used in subsequent analyses.
+
+- **Favorite count — Category 3:** All non-missing observations have a value of zero, so this variable has no variation. It is therefore not appropriate to use as an outcome in a linear regression model.
+
+- **Comment count — Category 2:** The raw distribution is strongly right-skewed and contains zero values. The `log1p()` transformation reduces the skewness and allows zero counts to be retained, so `log_comment_count` will be used in subsequent analyses.
+
+\
+
+## c. Fitting linear regression models
+
+### Fit separate regression models
+
+```{r}
+outcomes <- c(
+  "log_view_count",
+  "log_like_count",
+  "log_dislike_count",
+  "log_comment_count"
+)
+
+characteristics <- c(
+  "funny",
+  "show_product_quickly",
+  "patriotic",
+  "celebrity",
+  "danger",
+  "animals",
+  "use_sex"
+)
+
+```
+
+
+```{r}
+#' Fit one linear regression model
+#'
+#' @param outcome Name of the engagement outcome variable.
+#' @param characteristic Name of the binary commercial characteristic.
+#' @param data Data frame containing the variables.
+#' @return A data frame containing the characteristic coefficient and p-value.
+fit_engagement_model <- function(outcome, characteristic, data) {
+  model_formula <- reformulate(
+    c(characteristic, "year"),
+    response = outcome
+  )
+
+  model <- lm(model_formula, data = data)
+
+  coefficient_table <- summary(model)$coefficients
+
+  data.frame(
+    outcome = outcome,
+    characteristic = characteristic,
+    estimate = coefficient_table[2, "Estimate"],
+    p_value = coefficient_table[2, "Pr(>|t|)"]
+  )
+}
+```
+
+
+```{r}
+model_results <- do.call(
+  rbind,
+  lapply(outcomes, function(outcome) {
+    do.call(
+      rbind,
+      lapply(characteristics, function(characteristic) {
+        fit_engagement_model(
+          outcome,
+          characteristic,
+          youtube_deidentified
+        )
+      })
+    )
+  })
+)
+
+rownames(model_results) <- NULL
+
+model_results
+
+```
+
+### Summary of findings
+
+1. At the $\alpha = 0.05$ significance level, none of the seven commercial characteristics has a statistically significant association with any of the four engagement outcomes. All p-values are greater than 0.05.
+
+2. Because there are no statistically significant associations, there are no significant positive or negative associations to report.
+
+3. Among the seven characteristics, `danger` has the largest positive estimated association with transformed view counts. Its estimated coefficient is approximately 0.667, although this association is not statistically significant at the 0.05 level ($p = 0.094$).
+
+\
+
+## d. Estimating regression coefficients using matrix algebra
+
+### Select the characteristic and prepare the data
+
+```{r}
+analysis_data <- youtube_deidentified[
+  complete.cases(
+    youtube_deidentified[, c("log_view_count", "danger", "year")]
+  ),
+  c("log_view_count", "danger", "year")
+]
+
+analysis_data$danger <- as.numeric(analysis_data$danger)
+
+```
+
+### Estimate coefficients using matrix algebra
+
+```{r}
+y <- analysis_data$log_view_count
+
+X <- cbind(
+  intercept = 1,
+  danger = analysis_data$danger,
+  year = analysis_data$year
+)
+
+beta_hat <- solve(t(X) %*% X) %*%
+  t(X) %*% y
+
+beta_hat
+```
+
+### Compare with `lm()`
+```{r}
+lm_model <- lm(
+  log_view_count ~ danger + year,
+  data = analysis_data
+)
+
+coef(lm_model)
+```
+
+```{r}
+comparison <- data.frame(
+  coefficient = c("(Intercept)", "danger", "year"),
+  matrix_estimate = as.numeric(beta_hat),
+  lm_estimate = as.numeric(coef(lm_model))
+)
+
+comparison
+```
+
+### Conclusion
+
+For the transformed view-count outcome, `danger` had the smallest p-value among the seven commercial characteristics in part 3-c, so it was selected as the binary predictor.
+
+Using the matrix formula
+
+$$
+\hat{\beta} = (X^T X)^{-1} X^T y,
+$$
+
+the estimated coefficients are approximately -31.3915 for the intercept, 0.6668 for `danger`, and 0.0207 for `year`.
+
+Fitting the same model with `lm()` gives the same coefficient estimates, confirming that the matrix-algebra calculation agrees with R's linear regression implementation up to numerical precision.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
